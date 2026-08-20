@@ -1,0 +1,12 @@
+storage/data/*.sqlite
+storage/data/backups/*.sqlite
+storage/data/backups/*.sql
+storage/sessions/*
+storage/photos/*
+storage/tmp/*
+!storage/photos/.gitkeep
+!storage/data/.gitkeep
+!storage/sessions/.gitkeep
+!storage/tmp/.gitkeep
+tools/
+config.php
