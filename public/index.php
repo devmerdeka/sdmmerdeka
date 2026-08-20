@@ -32,7 +32,6 @@ if ($page === 'login') {
         <div>
             <p class="eyebrow">Sistem SDM Perusahaan</p>
             <h1>Platform SDM untuk absensi, cuti, lembur, shift, dan tim lapangan.</h1>
-            <p class="muted">Login demo admin: admin@mgi.test / password. Login demo karyawan lapangan: lapangan@mgi.test / password.</p>
         </div>
         <form method="post" class="card form">
             <input type="hidden" name="csrf" value="<?= csrf_token() ?>">
