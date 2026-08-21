@@ -363,7 +363,7 @@ function nearest_location(int $companyId, float $lat, float $lon): ?array
 
 function save_photo(string $dataUrl, int $userId): string
 {
-    if (!preg_match('/^data:image\/(png|jpeg|jpg);base64,/', $dataUrl)) {
+    if (!preg_match('/^data:image\/(png|jpeg|jpg);base64,/', $dataUrl, $matches)) {
         throw new RuntimeException('Foto wajah tidak valid.');
     }
 
@@ -382,7 +382,7 @@ function save_photo(string $dataUrl, int $userId): string
 
     $filename = sprintf('user-%d-%s.jpg', $userId, date('YmdHis'));
     $path = PHOTO_DIR . '/' . $filename;
-    file_put_contents($path, $binary);
+    save_watermarked_photo($binary, 'image/' . ($matches[1] === 'jpg' ? 'jpeg' : $matches[1]), $path);
 
     return $filename;
 }
@@ -414,11 +414,123 @@ function save_uploaded_photo(array $file, int $userId): string
     $filename = sprintf('user-%d-%s.jpg', $userId, date('YmdHis'));
     $path = PHOTO_DIR . '/' . $filename;
     $imageData = file_get_contents($tmpPath);
-    if ($imageData === false || file_put_contents($path, $imageData) === false) {
+    if ($imageData === false) {
         throw new RuntimeException('Foto wajah gagal disimpan.');
     }
+    save_watermarked_photo($imageData, (string) $info['mime'], $path);
 
     return $filename;
+}
+
+function save_watermarked_photo(string $binary, string $mime, string $path): void
+{
+    $watermark = 'Waktu absen: ' . date('d-m-Y H:i:s') . ' WIB';
+
+    if (class_exists('Imagick')) {
+        save_watermarked_photo_imagick($binary, $watermark, $path);
+        return;
+    }
+
+    if (function_exists('imagecreatefromstring')) {
+        save_watermarked_photo_gd($binary, $watermark, $path);
+        return;
+    }
+
+    throw new RuntimeException('Server belum mendukung watermark foto. Aktifkan extension Imagick atau GD.');
+}
+
+function save_watermarked_photo_imagick(string $binary, string $watermark, string $path): void
+{
+    $image = new Imagick();
+    $image->readImageBlob($binary);
+    $image->autoOrient();
+    $image->setImageFormat('jpeg');
+    $image->setImageBackgroundColor('white');
+    $image = $image->mergeImageLayers(Imagick::LAYERMETHOD_FLATTEN);
+
+    if ($image->getImageWidth() > 1280) {
+        $image->thumbnailImage(1280, 0);
+    }
+
+    $fontSize = max(18, (int) round($image->getImageWidth() / 35));
+    $padding = max(14, (int) round($fontSize * 0.75));
+    $barHeight = $fontSize + ($padding * 2);
+
+    $bar = new ImagickDraw();
+    $bar->setFillColor(new ImagickPixel('rgba(0,0,0,0.58)'));
+    $bar->rectangle(0, $image->getImageHeight() - $barHeight, $image->getImageWidth(), $image->getImageHeight());
+    $image->drawImage($bar);
+
+    $text = new ImagickDraw();
+    $text->setFillColor(new ImagickPixel('white'));
+    $text->setFontSize($fontSize);
+    $text->setFontWeight(700);
+    $image->annotateImage($text, $padding, $image->getImageHeight() - $padding, 0, $watermark);
+
+    for ($quality = 82; $quality >= 35; $quality -= 7) {
+        $image->setImageCompressionQuality($quality);
+        $blob = $image->getImagesBlob();
+        if (strlen($blob) <= MAX_PHOTO_BYTES || $quality <= 35) {
+            if (strlen($blob) > MAX_PHOTO_BYTES) {
+                throw new RuntimeException('Foto wajah terlalu besar setelah watermark. Coba ambil foto ulang lebih dekat atau lebih rendah resolusinya.');
+            }
+            if (file_put_contents($path, $blob) === false) {
+                throw new RuntimeException('Foto wajah gagal disimpan.');
+            }
+            return;
+        }
+    }
+}
+
+function save_watermarked_photo_gd(string $binary, string $watermark, string $path): void
+{
+    $source = @imagecreatefromstring($binary);
+    if (!$source) {
+        throw new RuntimeException('Foto wajah tidak dapat diproses.');
+    }
+
+    $width = imagesx($source);
+    $height = imagesy($source);
+    if ($width > 1280) {
+        $newWidth = 1280;
+        $newHeight = (int) round($height * ($newWidth / $width));
+        $resized = imagecreatetruecolor($newWidth, $newHeight);
+        imagecopyresampled($resized, $source, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
+        imagedestroy($source);
+        $source = $resized;
+        $width = $newWidth;
+        $height = $newHeight;
+    }
+
+    $fontSize = max(4, min(5, (int) round($width / 280)));
+    $textWidth = imagefontwidth($fontSize) * strlen($watermark);
+    while ($fontSize > 2 && $textWidth > ($width - 24)) {
+        $fontSize--;
+        $textWidth = imagefontwidth($fontSize) * strlen($watermark);
+    }
+
+    $padding = 12;
+    $barHeight = imagefontheight($fontSize) + ($padding * 2);
+    $black = imagecolorallocatealpha($source, 0, 0, 0, 45);
+    $white = imagecolorallocate($source, 255, 255, 255);
+    imagefilledrectangle($source, 0, $height - $barHeight, $width, $height, $black);
+    imagestring($source, $fontSize, $padding, $height - $barHeight + $padding, $watermark, $white);
+
+    for ($quality = 82; $quality >= 35; $quality -= 7) {
+        ob_start();
+        imagejpeg($source, null, $quality);
+        $blob = (string) ob_get_clean();
+        if (strlen($blob) <= MAX_PHOTO_BYTES || $quality <= 35) {
+            imagedestroy($source);
+            if (strlen($blob) > MAX_PHOTO_BYTES) {
+                throw new RuntimeException('Foto wajah terlalu besar setelah watermark. Coba ambil foto ulang lebih dekat atau lebih rendah resolusinya.');
+            }
+            if (file_put_contents($path, $blob) === false) {
+                throw new RuntimeException('Foto wajah gagal disimpan.');
+            }
+            return;
+        }
+    }
 }
 
 function companies(): array
