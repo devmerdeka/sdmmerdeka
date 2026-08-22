@@ -30,8 +30,8 @@ if ($page === 'login') {
     ?>
     <section class="login-panel">
         <div>
-            <p class="eyebrow">Sistem SDM Perusahaan</p>
-            <h1>Platform SDM untuk absensi, cuti, lembur, shift, dan tim lapangan.</h1>
+            <p class="eyebrow">SDM Merdeka Group Indonesia</p>
+            <h1>Platform pengelolaan sumber daya manusia Merdeka Group Indonesia.</h1>
         </div>
         <form method="post" class="card form">
             <input type="hidden" name="csrf" value="<?= csrf_token() ?>">
@@ -361,7 +361,7 @@ if ($page === 'companies') {
     ?>
     <h1>Anak Perusahaan</h1>
     <section class="two-col">
-        <form method="post" class="panel form">
+        <form method="post" class="panel form form-grid">
             <input type="hidden" name="csrf" value="<?= csrf_token() ?>">
             <input type="hidden" name="action" value="create">
             <label>Nama <input name="name" required></label>
@@ -376,41 +376,66 @@ if ($page === 'companies') {
 if ($page === 'employees') {
     $user = require_admin();
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-        if (input('action') === 'update') {
-            $params = [(int) input('company_id'), input('name'), input('email'), input('employee_code'), input('position'), isset($_POST['field_employee']) ? 1 : 0, (int) input('id')];
-            db()->prepare('UPDATE users SET company_id = ?, name = ?, email = ?, employee_code = ?, position = ?, field_employee = ? WHERE id = ? AND role = "employee"')->execute($params);
-            if (input('password') !== '') {
-                db()->prepare('UPDATE users SET password_hash = ? WHERE id = ? AND role = "employee"')->execute([password_hash(input('password'), PASSWORD_DEFAULT), (int) input('id')]);
+        try {
+            if (input('action') === 'update') {
+                $params = [(int) input('company_id'), input('name'), input('email'), input('employee_code'), input('position'), isset($_POST['field_employee']) ? 1 : 0, (int) input('id')];
+                db()->prepare('UPDATE users SET company_id = ?, name = ?, email = ?, employee_code = ?, position = ?, field_employee = ? WHERE id = ? AND role = "employee"')->execute($params);
+                if (input('password') !== '') {
+                    db()->prepare('UPDATE users SET password_hash = ? WHERE id = ? AND role = "employee"')->execute([password_hash(input('password'), PASSWORD_DEFAULT), (int) input('id')]);
+                }
+                flash('Data karyawan diperbarui.');
+            } elseif (input('action') === 'deactivate') {
+                db()->prepare('UPDATE users SET active = 0 WHERE id = ? AND role = "employee"')->execute([(int) input('id')]);
+                flash('Karyawan dinonaktifkan.');
+            } elseif (input('action') === 'activate') {
+                db()->prepare('UPDATE users SET active = 1 WHERE id = ? AND role = "employee"')->execute([(int) input('id')]);
+                flash('Karyawan diaktifkan kembali.');
+            } elseif (input('action') === 'delete_permanent') {
+                db()->prepare('DELETE FROM users WHERE id = ? AND role = "employee"')->execute([(int) input('id')]);
+                flash('Karyawan dihapus permanen.');
+            } else {
+                db()->prepare('INSERT INTO users (company_id, name, email, password_hash, role, employee_code, position, field_employee, created_at) VALUES (?, ?, ?, ?, "employee", ?, ?, ?, ?)')
+                    ->execute([(int) input('company_id'), input('name'), input('email'), password_hash(input('password', 'password'), PASSWORD_DEFAULT), input('employee_code'), input('position'), isset($_POST['field_employee']) ? 1 : 0, now()]);
+                flash('Karyawan ditambahkan.');
             }
-            flash('Data karyawan diperbarui.');
-        } elseif (input('action') === 'delete') {
-            db()->prepare('UPDATE users SET active = 0 WHERE id = ? AND role = "employee"')->execute([(int) input('id')]);
-            flash('Karyawan dinonaktifkan.');
-        } else {
-            db()->prepare('INSERT INTO users (company_id, name, email, password_hash, role, employee_code, position, field_employee, created_at) VALUES (?, ?, ?, ?, "employee", ?, ?, ?, ?)')
-                ->execute([(int) input('company_id'), input('name'), input('email'), password_hash(input('password', 'password'), PASSWORD_DEFAULT), input('employee_code'), input('position'), isset($_POST['field_employee']) ? 1 : 0, now()]);
-            flash('Karyawan ditambahkan.');
+        } catch (Throwable $e) {
+            flash('Data karyawan gagal diproses: ' . $e->getMessage(), 'danger');
         }
         redirect('?page=employees');
     }
-    $employees = db()->query("SELECT u.*, c.name AS company_name FROM users u LEFT JOIN companies c ON c.id = u.company_id WHERE u.role = 'employee' AND u.active = 1 ORDER BY u.name")->fetchAll();
+    if (in_array(input('export'), ['excel', 'pdf'], true)) {
+        $report = employees_report_data();
+        if (input('export') === 'excel') {
+            export_excel($report['title'], $report['headers'], $report['rows']);
+        }
+        export_pdf($report['title'], $report['headers'], $report['rows']);
+    }
+
+    $employees = employee_rows();
     render_header('Karyawan', $user);
     ?>
     <h1>Karyawan</h1>
-    <section class="two-col">
-        <form method="post" class="panel form">
-            <input type="hidden" name="csrf" value="<?= csrf_token() ?>">
-            <input type="hidden" name="action" value="create">
-            <label>Perusahaan <select name="company_id"><?php options_companies(); ?></select></label>
-            <label>Nama <input name="name" required></label>
-            <label>Email <input type="email" name="email" required></label>
-            <label>Password awal <input name="password" value="password" required></label>
-            <label>NIK/Kode <input name="employee_code" required></label>
-            <label>Jabatan <input name="position"></label>
-            <label class="check"><input type="checkbox" name="field_employee"> Karyawan lapangan</label>
-            <button class="btn primary">Simpan</button>
-        </form>
-        <section class="panel"><?php table_employees($employees); ?></section>
+    <form method="post" class="panel form form-grid">
+        <input type="hidden" name="csrf" value="<?= csrf_token() ?>">
+        <input type="hidden" name="action" value="create">
+        <label>Perusahaan <select name="company_id"><?php options_companies(); ?></select></label>
+        <label>Nama <input name="name" required></label>
+        <label>Email <input type="email" name="email" required></label>
+        <label>Password awal <input name="password" value="password" required></label>
+        <label>NIK/Kode <input name="employee_code" required></label>
+        <label>Jabatan <input name="position"></label>
+        <label class="check"><input type="checkbox" name="field_employee"> Karyawan lapangan</label>
+        <button class="btn primary">Simpan</button>
+    </form>
+    <section class="panel section-gap">
+        <div class="section-head">
+            <h2>Data Karyawan</h2>
+            <div class="action-row">
+                <a class="btn" href="?page=employees&export=excel">Excel</a>
+                <a class="btn" href="?page=employees&export=pdf">PDF</a>
+            </div>
+        </div>
+        <?php table_employees($employees); ?>
     </section>
     <?php render_footer(); exit;
 }
@@ -460,7 +485,7 @@ if ($page === 'settings') {
                 <button class="btn primary">Export Database</button>
             </form>
         </div>
-        <form method="post" enctype="multipart/form-data" class="panel form">
+        <form method="post" enctype="multipart/form-data" class="panel form form-grid">
             <h2>Import Database</h2>
             <p class="muted">Import menjalankan file backup SQL ke database aktif. Gunakan file dari export aplikasi ini atau phpMyAdmin.</p>
             <input type="hidden" name="csrf" value="<?= csrf_token() ?>">
@@ -503,7 +528,7 @@ if ($page === 'locations') {
     ?>
     <h1>Lokasi Absensi</h1>
     <section class="two-col">
-        <form method="post" class="panel form">
+        <form method="post" class="panel form form-grid">
             <input type="hidden" name="csrf" value="<?= csrf_token() ?>">
             <input type="hidden" name="action" value="create">
             <label>Perusahaan <select name="company_id"><?php options_companies(); ?></select></label>
@@ -537,7 +562,7 @@ if ($page === 'work-hours') {
     ?>
     <h1>Manajemen Jam Kerja</h1>
     <section class="two-col">
-        <form method="post" class="panel form">
+        <form method="post" class="panel form form-grid">
             <input type="hidden" name="csrf" value="<?= csrf_token() ?>">
             <input type="hidden" name="action" value="save">
             <label>Perusahaan <select name="company_id"><?php options_companies(); ?></select></label>
@@ -590,7 +615,7 @@ if ($page === 'shifts') {
     ?>
     <h1>Manajemen Shift Kerja</h1>
     <section class="two-col">
-        <form method="post" class="panel form">
+        <form method="post" class="panel form form-grid">
             <input type="hidden" name="csrf" value="<?= csrf_token() ?>">
             <input type="hidden" name="action" value="create">
             <label>Perusahaan <select name="company_id"><?php options_companies(); ?></select></label>
@@ -603,7 +628,7 @@ if ($page === 'shifts') {
         <section class="panel"><?php table_shifts($rows); ?></section>
     </section>
     <section class="two-col section-gap">
-        <form method="post" class="panel form">
+        <form method="post" class="panel form form-grid">
             <input type="hidden" name="csrf" value="<?= csrf_token() ?>">
             <input type="hidden" name="action" value="assign">
             <label>Karyawan
@@ -737,7 +762,7 @@ if ($page === 'leave-policies') {
     ?>
     <h1>Aturan Batas Cuti</h1>
     <section class="two-col">
-        <form method="post" class="panel form">
+        <form method="post" class="panel form form-grid">
             <input type="hidden" name="csrf" value="<?= csrf_token() ?>">
             <input type="hidden" name="action" value="save">
             <label>Perusahaan <select name="company_id"><?php options_companies(); ?></select></label>
@@ -871,6 +896,29 @@ function options_companies(string $selected = ''): void
     }
 }
 
+function employee_rows(): array
+{
+    return db()->query("SELECT u.*, c.name AS company_name FROM users u LEFT JOIN companies c ON c.id = u.company_id WHERE u.role = 'employee' ORDER BY u.active DESC, u.name")->fetchAll();
+}
+
+function employees_report_data(): array
+{
+    return [
+        'title' => 'Data Karyawan',
+        'headers' => ['Nama', 'Perusahaan', 'Email', 'Kode', 'Jabatan', 'Tipe', 'Status', 'Dibuat'],
+        'rows' => array_map(fn ($row) => [
+            $row['name'],
+            $row['company_name'] ?? '-',
+            $row['email'],
+            $row['employee_code'] ?: '-',
+            $row['position'] ?: '-',
+            (int) $row['field_employee'] === 1 ? 'Lapangan' : 'Kantor',
+            (int) $row['active'] === 1 ? 'Aktif' : 'Nonaktif',
+            $row['created_at'],
+        ], employee_rows()),
+    ];
+}
+
 function paginate_array(array $rows, string $key = 'data'): array
 {
     $allowed = [10, 50, 100];
@@ -943,35 +991,52 @@ function simple_table(string $sql): void
     simple_rows(db()->query($sql)->fetchAll());
 }
 
+function open_table(): void
+{
+    echo '<div class="table-scroll"><table>';
+}
+
+function close_table(): void
+{
+    echo '</table></div>';
+}
+
 function table_companies(array $rows): void
 {
     if (!$rows) {
         echo '<p class="muted">Belum ada anak perusahaan.</p>';
         return;
     }
-    echo '<table><thead><tr><th>Nama</th><th>Kode</th><th>Dibuat</th><th>Aksi</th></tr></thead><tbody>';
+    open_table();
+    echo '<thead><tr><th>Nama</th><th>Kode</th><th>Dibuat</th><th>Aksi</th></tr></thead><tbody>';
     foreach ($rows as $row) {
         echo '<tr><td data-label="Nama"><form method="post" class="inline"><input type="hidden" name="csrf" value="' . csrf_token() . '"><input type="hidden" name="action" value="update"><input type="hidden" name="id" value="' . (int) $row['id'] . '"><input name="name" value="' . h($row['name']) . '" required></td><td data-label="Kode"><input name="code" value="' . h($row['code']) . '" required></td><td data-label="Dibuat">' . h($row['created_at']) . '</td><td data-label="Aksi"><button class="btn small">Simpan</button></form><form method="post" class="inline"><input type="hidden" name="csrf" value="' . csrf_token() . '"><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="' . (int) $row['id'] . '"><button class="btn small danger">Hapus</button></form></td></tr>';
     }
-    echo '</tbody></table>';
+    echo '</tbody>';
+    close_table();
 }
 
 function table_employees(array $rows): void
 {
     if (!$rows) {
-        echo '<p class="muted">Belum ada karyawan aktif.</p>';
+        echo '<p class="muted">Belum ada karyawan.</p>';
         return;
     }
-    echo '<table><thead><tr><th>Nama</th><th>Perusahaan</th><th>Email</th><th>Kode</th><th>Jabatan</th><th>Tipe</th><th>Password</th><th>Aksi</th></tr></thead><tbody>';
+    open_table();
+    echo '<thead><tr><th>Nama</th><th>Perusahaan</th><th>Email</th><th>Kode</th><th>Jabatan</th><th>Tipe</th><th>Status</th><th>Password</th><th>Aksi</th></tr></thead><tbody>';
     foreach ($rows as $row) {
+        $isActive = (int) $row['active'] === 1;
         echo '<tr><form method="post"><td data-label="Nama"><input type="hidden" name="csrf" value="' . csrf_token() . '"><input type="hidden" name="action" value="update"><input type="hidden" name="id" value="' . (int) $row['id'] . '"><input name="name" value="' . h($row['name']) . '" required></td><td data-label="Perusahaan"><select name="company_id">';
         foreach (companies() as $company) {
             $selected = (int) $company['id'] === (int) $row['company_id'] ? 'selected' : '';
             echo '<option value="' . (int) $company['id'] . '" ' . $selected . '>' . h($company['name']) . '</option>';
         }
-        echo '</select></td><td data-label="Email"><input type="email" name="email" value="' . h($row['email']) . '" required></td><td data-label="Kode"><input name="employee_code" value="' . h($row['employee_code']) . '" required></td><td data-label="Jabatan"><input name="position" value="' . h($row['position']) . '"></td><td data-label="Tipe"><label class="check"><input type="checkbox" name="field_employee" ' . ((int) $row['field_employee'] === 1 ? 'checked' : '') . '> Lapangan</label></td><td data-label="Password"><input name="password" placeholder="Kosongkan bila tetap"></td><td data-label="Aksi"><button class="btn small">Simpan</button></form><form method="post" class="inline"><input type="hidden" name="csrf" value="' . csrf_token() . '"><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="' . (int) $row['id'] . '"><button class="btn small danger">Nonaktifkan</button></form></td></tr>';
+        echo '</select></td><td data-label="Email"><input type="email" name="email" value="' . h($row['email']) . '" required></td><td data-label="Kode"><input name="employee_code" value="' . h($row['employee_code']) . '" required></td><td data-label="Jabatan"><input name="position" value="' . h($row['position']) . '"></td><td data-label="Tipe"><label class="check"><input type="checkbox" name="field_employee" ' . ((int) $row['field_employee'] === 1 ? 'checked' : '') . '> Lapangan</label></td><td data-label="Status"><span class="badge ' . ($isActive ? 'success' : 'warning') . '">' . ($isActive ? 'Aktif' : 'Nonaktif') . '</span></td><td data-label="Password"><input name="password" placeholder="Kosongkan bila tetap"></td><td data-label="Aksi"><button class="btn small">Simpan</button></form>';
+        echo '<form method="post" class="inline"><input type="hidden" name="csrf" value="' . csrf_token() . '"><input type="hidden" name="action" value="' . ($isActive ? 'deactivate' : 'activate') . '"><input type="hidden" name="id" value="' . (int) $row['id'] . '"><button class="btn small ' . ($isActive ? 'warning' : 'success') . '">' . ($isActive ? 'Nonaktifkan' : 'Aktifkan') . '</button></form>';
+        echo '<form method="post" class="inline" onsubmit="return confirm(\'Hapus permanen karyawan ini? Data transaksi terkait juga bisa ikut terhapus.\')"><input type="hidden" name="csrf" value="' . csrf_token() . '"><input type="hidden" name="action" value="delete_permanent"><input type="hidden" name="id" value="' . (int) $row['id'] . '"><button class="btn small danger">Hapus</button></form></td></tr>';
     }
-    echo '</tbody></table>';
+    echo '</tbody>';
+    close_table();
 }
 
 function simple_rows(array $rows, array $labels = []): void
@@ -981,7 +1046,8 @@ function simple_rows(array $rows, array $labels = []): void
         return;
     }
     $keys = array_keys($labels ?: $rows[0]);
-    echo '<table><thead><tr>';
+    open_table();
+    echo '<thead><tr>';
     foreach ($keys as $key) {
         echo '<th>' . h($labels[$key] ?? ucwords(str_replace('_', ' ', $key))) . '</th>';
     }
@@ -993,7 +1059,8 @@ function simple_rows(array $rows, array $labels = []): void
         }
         echo '</tr>';
     }
-    echo '</tbody></table>';
+    echo '</tbody>';
+    close_table();
 }
 
 function table_locations(array $rows): void
@@ -1002,7 +1069,8 @@ function table_locations(array $rows): void
         echo '<p class="muted">Belum ada lokasi.</p>';
         return;
     }
-    echo '<table><thead><tr><th>Perusahaan</th><th>Lokasi</th><th>Latitude</th><th>Longitude</th><th>Radius</th><th>Status</th><th>Aksi</th></tr></thead><tbody>';
+    open_table();
+    echo '<thead><tr><th>Perusahaan</th><th>Lokasi</th><th>Latitude</th><th>Longitude</th><th>Radius</th><th>Status</th><th>Aksi</th></tr></thead><tbody>';
     foreach ($rows as $row) {
         echo '<tr><form method="post"><td data-label="Perusahaan"><input type="hidden" name="csrf" value="' . csrf_token() . '"><input type="hidden" name="action" value="update"><input type="hidden" name="id" value="' . (int) $row['id'] . '"><select name="company_id">';
         foreach (companies() as $company) {
@@ -1011,7 +1079,8 @@ function table_locations(array $rows): void
         }
         echo '</select></td><td data-label="Lokasi"><input name="name" value="' . h($row['name']) . '" required></td><td data-label="Latitude"><input name="latitude" value="' . h((string) $row['latitude']) . '" required></td><td data-label="Longitude"><input name="longitude" value="' . h((string) $row['longitude']) . '" required></td><td data-label="Radius"><input type="number" name="radius_meters" value="' . (int) $row['radius_meters'] . '" min="10"></td><td data-label="Status"><label class="check"><input type="checkbox" name="active" ' . ((int) $row['active'] === 1 ? 'checked' : '') . '> Aktif</label></td><td data-label="Aksi"><button class="btn small">Simpan</button></form><form method="post" class="inline"><input type="hidden" name="csrf" value="' . csrf_token() . '"><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="' . (int) $row['id'] . '"><button class="btn small danger">Hapus</button></form></td></tr>';
     }
-    echo '</tbody></table>';
+    echo '</tbody>';
+    close_table();
 }
 
 function table_work_hours(array $rows): void
@@ -1020,11 +1089,13 @@ function table_work_hours(array $rows): void
         echo '<p class="muted">Belum ada jam kerja.</p>';
         return;
     }
-    echo '<table><thead><tr><th>Perusahaan</th><th>Hari</th><th>Jam</th><th>Status</th><th>Aksi</th></tr></thead><tbody>';
+    open_table();
+    echo '<thead><tr><th>Perusahaan</th><th>Hari</th><th>Jam</th><th>Status</th><th>Aksi</th></tr></thead><tbody>';
     foreach ($rows as $row) {
         echo '<tr><td data-label="Perusahaan">' . h($row['company_name']) . '</td><td data-label="Hari">' . h(day_name((int) $row['day_of_week'])) . '</td><td data-label="Jam">' . h($row['start_time'] . ' - ' . $row['end_time']) . '</td><td data-label="Status">' . h((int) $row['active'] === 1 ? 'Aktif' : 'Libur') . '</td><td data-label="Aksi"><form method="post" class="inline"><input type="hidden" name="csrf" value="' . csrf_token() . '"><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="' . (int) $row['id'] . '"><button class="btn small danger">Hapus</button></form></td></tr>';
     }
-    echo '</tbody></table>';
+    echo '</tbody>';
+    close_table();
 }
 
 function table_shifts(array $rows): void
@@ -1033,7 +1104,8 @@ function table_shifts(array $rows): void
         echo '<p class="muted">Belum ada shift.</p>';
         return;
     }
-    echo '<table><thead><tr><th>Perusahaan</th><th>Shift</th><th>Masuk</th><th>Pulang</th><th>Toleransi</th><th>Aksi</th></tr></thead><tbody>';
+    open_table();
+    echo '<thead><tr><th>Perusahaan</th><th>Shift</th><th>Masuk</th><th>Pulang</th><th>Toleransi</th><th>Aksi</th></tr></thead><tbody>';
     foreach ($rows as $row) {
         echo '<tr><form method="post"><td data-label="Perusahaan"><input type="hidden" name="csrf" value="' . csrf_token() . '"><input type="hidden" name="action" value="update"><input type="hidden" name="id" value="' . (int) $row['id'] . '"><select name="company_id">';
         foreach (companies() as $company) {
@@ -1042,7 +1114,8 @@ function table_shifts(array $rows): void
         }
         echo '</select></td><td data-label="Shift"><input name="name" value="' . h($row['name']) . '" required></td><td data-label="Masuk"><input type="time" name="start_time" value="' . h($row['start_time']) . '" required></td><td data-label="Pulang"><input type="time" name="end_time" value="' . h($row['end_time']) . '" required></td><td data-label="Toleransi"><input type="number" name="late_tolerance_minutes" value="' . (int) $row['late_tolerance_minutes'] . '" min="0"></td><td data-label="Aksi"><button class="btn small">Simpan</button></form><form method="post" class="inline"><input type="hidden" name="csrf" value="' . csrf_token() . '"><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="' . (int) $row['id'] . '"><button class="btn small danger">Hapus</button></form></td></tr>';
     }
-    echo '</tbody></table>';
+    echo '</tbody>';
+    close_table();
 }
 
 function table_shift_assignments(array $rows): void
@@ -1051,11 +1124,13 @@ function table_shift_assignments(array $rows): void
         echo '<p class="muted">Belum ada penugasan shift.</p>';
         return;
     }
-    echo '<table><thead><tr><th>Tanggal</th><th>Karyawan</th><th>Kode</th><th>Shift</th><th>Jam</th><th>Aksi</th></tr></thead><tbody>';
+    open_table();
+    echo '<thead><tr><th>Tanggal</th><th>Karyawan</th><th>Kode</th><th>Shift</th><th>Jam</th><th>Aksi</th></tr></thead><tbody>';
     foreach ($rows as $row) {
         echo '<tr><td data-label="Tanggal">' . h($row['work_date']) . '</td><td data-label="Karyawan">' . h($row['name']) . '</td><td data-label="Kode">' . h($row['employee_code']) . '</td><td data-label="Shift">' . h($row['shift_name']) . '</td><td data-label="Jam">' . h($row['start_time'] . ' - ' . $row['end_time']) . '</td><td data-label="Aksi"><form method="post" class="inline"><input type="hidden" name="csrf" value="' . csrf_token() . '"><input type="hidden" name="action" value="delete_assignment"><input type="hidden" name="id" value="' . (int) $row['id'] . '"><button class="btn small danger">Hapus</button></form></td></tr>';
     }
-    echo '</tbody></table>';
+    echo '</tbody>';
+    close_table();
 }
 
 function table_attendance(array $rows, bool $showEmployee = true): void
@@ -1066,7 +1141,8 @@ function table_attendance(array $rows, bool $showEmployee = true): void
     }
     $viewer = current_user();
     $showTracking = $viewer && $viewer['role'] === 'admin';
-    echo '<table><thead><tr>';
+    open_table();
+    echo '<thead><tr>';
     if ($showEmployee) {
         echo '<th>Karyawan</th><th>Perusahaan</th>';
     }
@@ -1087,7 +1163,8 @@ function table_attendance(array $rows, bool $showEmployee = true): void
         }
         echo '</tr>';
     }
-    echo '</tbody></table>';
+    echo '</tbody>';
+    close_table();
 }
 
 function table_overtime(array $rows, bool $admin): void
@@ -1096,7 +1173,8 @@ function table_overtime(array $rows, bool $admin): void
         echo '<p class="muted">Belum ada pengajuan lembur.</p>';
         return;
     }
-    echo '<table><thead><tr><th>Karyawan</th><th>Perusahaan</th><th>Tanggal</th><th>Jam</th><th>Durasi</th><th>Status</th><th>Alasan</th>';
+    open_table();
+    echo '<thead><tr><th>Karyawan</th><th>Perusahaan</th><th>Tanggal</th><th>Jam</th><th>Durasi</th><th>Status</th><th>Alasan</th>';
     echo '<th>Aksi</th>';
     echo '</tr></thead><tbody>';
     foreach ($rows as $row) {
@@ -1130,7 +1208,8 @@ function table_overtime(array $rows, bool $admin): void
         }
         echo '</tr>';
     }
-    echo '</tbody></table>';
+    echo '</tbody>';
+    close_table();
 }
 
 function table_leave_policies(array $rows): void
@@ -1139,7 +1218,8 @@ function table_leave_policies(array $rows): void
         echo '<p class="muted">Belum ada aturan cuti.</p>';
         return;
     }
-    echo '<table><thead><tr><th>Perusahaan</th><th>Jenis</th><th>Batas Hari/Tahun</th><th>Status</th><th>Aksi</th></tr></thead><tbody>';
+    open_table();
+    echo '<thead><tr><th>Perusahaan</th><th>Jenis</th><th>Batas Hari/Tahun</th><th>Status</th><th>Aksi</th></tr></thead><tbody>';
     foreach ($rows as $row) {
         echo '<tr><form method="post"><td data-label="Perusahaan"><input type="hidden" name="csrf" value="' . csrf_token() . '"><input type="hidden" name="action" value="save"><select name="company_id">';
         foreach (companies() as $company) {
@@ -1153,7 +1233,8 @@ function table_leave_policies(array $rows): void
         }
         echo '</select></td><td data-label="Batas"><input type="number" name="annual_limit_days" value="' . (int) $row['annual_limit_days'] . '" min="0"></td><td data-label="Status"><label class="check"><input type="checkbox" name="active" ' . ((int) $row['active'] === 1 ? 'checked' : '') . '> Aktif</label></td><td data-label="Aksi"><button class="btn small">Simpan</button></form><form method="post" class="inline"><input type="hidden" name="csrf" value="' . csrf_token() . '"><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="' . (int) $row['id'] . '"><button class="btn small danger">Hapus</button></form></td></tr>';
     }
-    echo '</tbody></table>';
+    echo '</tbody>';
+    close_table();
 }
 
 function table_leave_quota(array $user): void
@@ -1183,7 +1264,8 @@ function table_leaves(array $rows, bool $admin): void
         echo '<p class="muted">Belum ada pengajuan cuti.</p>';
         return;
     }
-    echo '<table><thead><tr><th>Karyawan</th><th>Perusahaan</th><th>Jenis</th><th>Periode</th><th>Status</th><th>Alasan</th>';
+    open_table();
+    echo '<thead><tr><th>Karyawan</th><th>Perusahaan</th><th>Jenis</th><th>Periode</th><th>Status</th><th>Alasan</th>';
     echo '<th>Aksi</th>';
     echo '</tr></thead><tbody>';
     foreach ($rows as $row) {
@@ -1220,7 +1302,8 @@ function table_leaves(array $rows, bool $admin): void
         }
         echo '</tr>';
     }
-    echo '</tbody></table>';
+    echo '</tbody>';
+    close_table();
 }
 
 function overtime_duration(string $start, string $end): string
@@ -1413,7 +1496,8 @@ function table_report(array $headers, array $rows): void
         echo '<p class="muted">Belum ada data laporan.</p>';
         return;
     }
-    echo '<table><thead><tr>';
+    open_table();
+    echo '<thead><tr>';
     foreach ($headers as $header) {
         echo '<th>' . h($header) . '</th>';
     }
@@ -1425,7 +1509,8 @@ function table_report(array $headers, array $rows): void
         }
         echo '</tr>';
     }
-    echo '</tbody></table>';
+    echo '</tbody>';
+    close_table();
 }
 
 function export_database(): never
@@ -1451,7 +1536,7 @@ function import_database(string $uploadedPath): void
     if ($sql === false || trim($sql) === '') {
         throw new RuntimeException('File backup kosong atau tidak bisa dibaca.');
     }
-    foreach (app_tables() as $table) {
+    foreach (required_backup_tables() as $table) {
         if (stripos($sql, $table) === false) {
             throw new RuntimeException('File backup tidak valid. Tabel ' . $table . ' tidak ditemukan.');
         }
@@ -1512,6 +1597,11 @@ function clear_old_data(): array
 }
 
 function app_tables(): array
+{
+    return ['companies', 'users', 'locations', 'shifts', 'work_hours', 'employee_shifts', 'attendances', 'leave_requests', 'overtime_requests', 'leave_policies'];
+}
+
+function required_backup_tables(): array
 {
     return ['companies', 'users', 'locations', 'shifts', 'work_hours', 'employee_shifts', 'attendances', 'leave_requests', 'overtime_requests', 'leave_policies'];
 }

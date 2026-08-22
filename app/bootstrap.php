@@ -51,7 +51,7 @@ function db(): PDO
 
 function migrate(PDO $pdo): void
 {
-    $pdo->exec(<<<SQL
+    execute_sql_batch($pdo, <<<SQL
 CREATE TABLE IF NOT EXISTS companies (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(150) NOT NULL,
@@ -185,6 +185,42 @@ SQL);
     ensure_column($pdo, 'overtime_requests', 'duration_minutes', 'INT NOT NULL DEFAULT 0');
     ensure_column($pdo, 'attendances', 'late_minutes', 'INT NOT NULL DEFAULT 0');
     ensure_column($pdo, 'attendances', 'early_leave_minutes', 'INT NOT NULL DEFAULT 0');
+}
+
+function execute_sql_batch(PDO $pdo, string $sql): void
+{
+    foreach (split_sql_batch($sql) as $statement) {
+        if (trim($statement) !== '') {
+            $pdo->exec($statement);
+        }
+    }
+}
+
+function split_sql_batch(string $sql): array
+{
+    $statements = [];
+    $current = '';
+    $quote = null;
+    $length = strlen($sql);
+
+    for ($i = 0; $i < $length; $i++) {
+        $char = $sql[$i];
+        if (($char === "'" || $char === '"') && ($i === 0 || $sql[$i - 1] !== '\\')) {
+            $quote = $quote === $char ? null : ($quote ?? $char);
+        }
+        if ($char === ';' && $quote === null) {
+            $statements[] = trim($current);
+            $current = '';
+            continue;
+        }
+        $current .= $char;
+    }
+
+    if (trim($current) !== '') {
+        $statements[] = trim($current);
+    }
+
+    return $statements;
 }
 
 function ensure_column(PDO $pdo, string $table, string $column, string $definition): void

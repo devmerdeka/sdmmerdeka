@@ -7,7 +7,6 @@ Aplikasi SDM berbasis PHP untuk multi anak perusahaan, absensi foto wajah + loka
 - Login admin dan karyawan.
 - Multi anak perusahaan.
 - Master karyawan dengan penanda karyawan kantor atau lapangan.
-- Master SDM untuk departemen, jabatan, grade, status kerja, tanggal masuk, kontak, alamat, dan gaji pokok.
 - Master lokasi absensi dengan radius koordinat.
 - Manajemen jam kerja per hari dan perusahaan.
 - Manajemen shift kerja dan penugasan shift karyawan per tanggal.
@@ -80,5 +79,7 @@ Buka `http://localhost:8000`.
 ## Catatan Implementasi
 
 Tabel database MySQL dibuat otomatis saat aplikasi pertama kali dibuka. Foto absensi disimpan di `storage/photos`.
+
+Pengembangan fitur baru memakai migrasi additive seperti `CREATE TABLE IF NOT EXISTS` dan penambahan kolom bila diperlukan. Deploy aplikasi tidak menghapus database trial yang sudah berjalan selama database tidak dihapus/import ulang secara manual.
 
 MVP ini mengambil foto wajah sebagai bukti absensi. Untuk verifikasi biometrik otomatis, integrasi berikutnya bisa memakai face embedding di sisi browser atau layanan face recognition internal, lalu menyimpan template wajah karyawan dan skor kecocokan per absensi.
